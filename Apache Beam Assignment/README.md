@@ -91,9 +91,9 @@ Example closing line:
 
 ## 🏁 Credits
 
-**Author:** *[Your Name]*  
+**Author:** *Dev Mulchandani*  
 **Course:** CMPE 255 – Data Mining, Fall 2025  
-**Instructor:** *[Instructor’s Name]*  
+**Instructor:** *Vijay Eranti*  
 **University:** San José State University
 
 ---
