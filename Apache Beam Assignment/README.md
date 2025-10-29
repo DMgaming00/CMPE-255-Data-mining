@@ -37,7 +37,7 @@ beam_outputs/                                   # Output files from each pipelin
 ## ⚙️ How to Run
 
 ### 1. Open in Google Colab
-- Upload the notebook [`apache_beam_assignment_colab_PATCHED_v2.ipynb`](./apache_beam_assignment_colab_PATCHED_v2.ipynb)
+- Upload the notebook [`apache_beam_assignment_colab_PATCHED_v2.ipynb`](https://colab.research.google.com/drive/1JKGgPiBDLUH8HCe4UGITRAs_DLXwtBN7)
 - Or open directly in Colab via  
   **File → Upload notebook → Choose file**
 
