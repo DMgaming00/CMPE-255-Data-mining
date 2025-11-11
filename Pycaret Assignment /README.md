@@ -38,7 +38,7 @@ Each notebook demonstrates an end-to-end ML pipeline:
 
 ---
 
-## 📊 Walkthrough Videos
+## 🎥 Walkthrough Videos
 Drive Link :- [https://drive.google.com/drive/folders/1jxdZXrJfwB01D9F0z1z3Z5LK2NgkISdl?usp=sharing]
 
 ---
