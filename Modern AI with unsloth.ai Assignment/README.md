@@ -23,4 +23,9 @@ This repository contains five Colab-based projects exploring fine‑tuning and r
 - FP32 precision for error‑free Colab execution
 
 ---
+
+## 🎥 Walkthrough Videos
+Drive Link :- [https://drive.google.com/drive/folders/1OGfvBtWxrES1iFY8CR9Er_SKVj3z7sLU?usp=sharing]
+
+---
 🧠 *Created by Dev Mulchandani for the “Modern AI with Unsloth.ai” coursework.*
