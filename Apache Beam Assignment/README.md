@@ -65,17 +65,6 @@ In Colab’s left sidebar (Files tab), expand the **beam_outputs/** folder to vi
 | `light` | Partitioned data — light items (qty < 5) |
 | `ml_predictions` | (Optional) ML inference results from a logistic regression model |
 
----
-
-## 🗣️ Suggested Video Walkthrough
-
-If you’re submitting this for class:
-1. Show the notebook structure and run each major section.
-2. Open each output file and explain what it represents.
-3. End with a quick summary of how Beam handles transforms, windows, and parallel processing.
-
-Example closing line:
-> “This project demonstrates Apache Beam’s flexibility for both batch and streaming data processing, and how it integrates with machine learning pipelines.”
 
 ---
 
