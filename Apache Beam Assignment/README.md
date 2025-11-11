@@ -77,6 +77,11 @@ In Colab’s left sidebar (Files tab), expand the **beam_outputs/** folder to vi
 - **NumPy / joblib**
 
 ---
+##  Walkthrough Video 
+
+- **Drive Link** [https://drive.google.com/file/d/1RtXMTkQL5YYgNzvtyEgi_kNYpDEB9ATq/view?usp=drive_link ]
+
+---
 
 ## 🏁 Credits
 
