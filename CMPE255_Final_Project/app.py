@@ -287,39 +287,59 @@ st.pyplot(fig_fi)
 # --------------------------------------------------------------------------------------
 # SHAP Feature Importance
 # --------------------------------------------------------------------------------------
-st.subheader("🧠 SHAP Feature Importance")
+st.subheader("🧠 SHAP Feature Importance (Custom Beeswarm)")
 
 try:
-    # Sample
-    Xs = X_train.sample(min(300, len(X_train)), random_state=42)
+    # 1. Sample data
+    Xs = X_train.sample(min(200, len(X_train)), random_state=42)
     Xs_proc = pipe["pre"].transform(Xs)
+
     if hasattr(Xs_proc, "toarray"):
         Xs_proc = Xs_proc.toarray()
 
     Xs_df = pd.DataFrame(Xs_proc, columns=feature_names)
 
+    # 2. Compute SHAP values
     explainer = shap.TreeExplainer(pipe["model"])
-    shap_values = explainer.shap_values(Xs_df)
+    sv = explainer.shap_values(Xs_df)
 
-    # Binary classification → choose class 1
-    if isinstance(shap_values, list):
-        sv = shap_values[1]
-    else:
-        sv = shap_values
+    # Handle binary vs multiclass
+    if isinstance(sv, list):
+        # Binary classification → use class 1 values
+        if len(sv) == 2:
+            sv = sv[1]
+        else:
+            # Multiclass → average absolute SHAP
+            sv = np.mean(np.abs(np.array(sv)), axis=0)
 
-    # Compute mean |SHAP| importance
-    mean_abs = np.mean(np.abs(sv), axis=0)
-    order = np.argsort(mean_abs)[::-1][:10]   # Top 10 features
-    top_features = [feature_names[i] for i in order]
-    top_shap = mean_abs[order]
+    # sv shape: (n_samples, n_features)
+    shap_df = pd.DataFrame(sv, columns=feature_names)
 
-    # 💥 MANUAL MATPLOTLIB BAR CHART (always works!)
-    fig, ax = plt.subplots(figsize=(8,5))
-    ax.barh(top_features[::-1], top_shap[::-1], color="cornflowerblue")
-    ax.set_xlabel("Mean |SHAP value|")
-    ax.set_title("SHAP Feature Importance (Top 10)")
+    # 3. Sort by importance
+    mean_abs_shap = shap_df.abs().mean().sort_values(ascending=False)
+    top_features = mean_abs_shap.index[:10]
 
-    st.pyplot(fig)
+    # 4. Build a stable beeswarm manually
+    fig, ax = plt.subplots(figsize=(10, 6))
+    plt.gcf().set_facecolor("white")
+
+    y_positions = range(len(top_features))
+
+    for i, feat in enumerate(top_features):
+        vals = shap_df[feat].values
+        jitter = np.random.normal(0, 0.03, size=len(vals))
+        ax.scatter(vals, i + jitter, alpha=0.7, s=22,
+                   c=np.where(vals > 0, "crimson", "royalblue"))
+
+    ax.set_yticks(list(y_positions))
+    ax.set_yticklabels(top_features)
+    ax.set_xlabel("SHAP value")
+    ax.set_title("Custom SHAP Beeswarm (Top 10 Features)")
+
+    ax.axvline(0, color="gray", linestyle="--", linewidth=1)
+
+    plt.tight_layout()
+    st.pyplot(fig, clear_figure=True)
 
 except Exception as e:
     st.error(f"SHAP failed: {e}")
