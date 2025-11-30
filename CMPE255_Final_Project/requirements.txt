@@ -1,6 +1,10 @@
-streamlit
-pandas
-numpy
-scikit-learn
-matplotlib
-shap
+streamlit==1.29.0
+pandas==2.1.3
+numpy==1.26.2
+scikit-learn==1.3.2
+matplotlib==3.8.2
+seaborn==0.13.0
+shap==0.43.0
+ydata-profiling==4.6.1
+category-encoders==2.6.3
+scipy==1.11.3
