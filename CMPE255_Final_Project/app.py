@@ -287,49 +287,57 @@ st.pyplot(fig_fi)
 # --------------------------------------------------------------------------------------
 # SHAP Feature Importance
 # --------------------------------------------------------------------------------------
-st.subheader("🧠 SHAP Feature Importance")
+st.subheader("🧠 SHAP Feature Importance (Custom Beeswarm)")
 
 try:
-    # Sample training data
+    # ---- Sample training data ----
     Xs = X_train.sample(min(300, len(X_train)), random_state=42)
     Xs_proc = pipe["pre"].transform(Xs)
     if hasattr(Xs_proc, "toarray"):
         Xs_proc = Xs_proc.toarray()
-
     Xs_df = pd.DataFrame(Xs_proc, columns=feature_names)
 
-    # Create SHAP explainer
+    # ---- Compute SHAP values ----
     explainer = shap.TreeExplainer(pipe["model"])
     shap_values = explainer.shap_values(Xs_df)
 
-    # Handle binary / multiclass
+    # Handle binary/multiclass
     if isinstance(shap_values, list):
-        if len(shap_values) == 2:
-            sv = shap_values[1]
-        else:
-            sv = np.mean(shap_values, axis=0)
+        sv = shap_values[1]    # for binary: class 1 SHAP
     else:
         sv = shap_values
 
-    # 💥 FIX: Create a controlled-size figure BEFORE calling summary_plot
-    fig, ax = plt.subplots(figsize=(10, 4), dpi=100)
+    # ---- Select top features ----
+    mean_abs = np.mean(np.abs(sv), axis=0)
+    order = np.argsort(mean_abs)[::-1][:10]  # top 10
+    top_features = [feature_names[i] for i in order]
+
+    shap_df = pd.DataFrame(sv, columns=feature_names)
+    shap_top = shap_df[top_features]
+
+    # ---- Custom Beeswarm ----
+    fig, ax = plt.subplots(figsize=(10, 6))
     plt.gcf().set_facecolor("white")
 
-    shap.summary_plot(
-        sv,
-        Xs_df,
-        plot_type="dot",
-        show=False,
-        max_display=10,      # 💥 LIMIT TO TOP 10 FEATURES (makes plot smaller)
-    )
+    for i, feat in enumerate(top_features[::-1]):
+        vals = shap_top[feat].values
+        jitter = np.random.normal(0, 0.01, size=len(vals))
+        ax.scatter(vals, np.full_like(vals, i) + jitter,
+                   alpha=0.6, s=18,
+                   c=np.where(vals > 0, "crimson", "royalblue"))
 
-    # 💥 FIX: Tight layout prevents cutoff
+    ax.set_yticks(range(len(top_features)))
+    ax.set_yticklabels(top_features[::-1])
+    ax.set_xlabel("SHAP value")
+    ax.set_title("Custom SHAP Beeswarm (Top 10 Features)")
+    ax.axvline(0, color="gray", linestyle="--", linewidth=1)
+
     plt.tight_layout()
-
-    st.pyplot(fig, clear_figure=True)
+    st.pyplot(fig)
 
 except Exception as e:
     st.error(f"SHAP failed: {e}")
+
 
 
 # --------------------------------------------------------------------------------------
