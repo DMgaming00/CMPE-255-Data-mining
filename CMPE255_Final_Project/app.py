@@ -1,376 +1,659 @@
-import streamlit as st
-import pandas as pd
+# app.py
+# --------------------------------------------------------
+# CMPE 255 – Auto Data Toolkit (Streamlit App)
+# --------------------------------------------------------
+# Requirements (add to requirements.txt):
+# streamlit
+# pandas
+# numpy
+# scikit-learn
+# matplotlib
+# seaborn
+# shap
+# ydata-profiling
+# category_encoders
+# --------------------------------------------------------
+
+import io
+import textwrap
 import numpy as np
+import pandas as pd
+import streamlit as st
 import matplotlib.pyplot as plt
+import seaborn as sns
 
 from sklearn.model_selection import train_test_split
-from sklearn.compose import ColumnTransformer
 from sklearn.pipeline import Pipeline
-from sklearn.preprocessing import OneHotEncoder, StandardScaler
-from sklearn.ensemble import RandomForestClassifier
+from sklearn.compose import ColumnTransformer
+
+from sklearn.preprocessing import (
+    StandardScaler,
+    OneHotEncoder,
+    OrdinalEncoder,
+    FunctionTransformer,
+)
+
+from sklearn.impute import (
+    SimpleImputer,
+    KNNImputer,
+)
+from sklearn.experimental import enable_iterative_imputer  # noqa: F401
+from sklearn.impute import IterativeImputer
+
+from sklearn.ensemble import RandomForestClassifier, IsolationForest
 from sklearn.metrics import (
     accuracy_score,
     precision_score,
     recall_score,
     f1_score,
-    confusion_matrix,
-    roc_auc_score,
-    roc_curve,
     classification_report,
+    confusion_matrix,
+    roc_curve,
+    roc_auc_score,
 )
-from sklearn.inspection import partial_dependence
+from sklearn.feature_selection import VarianceThreshold, RFE, mutual_info_classif
+from sklearn.inspection import PartialDependenceDisplay
 
 import shap
 
-# --------------------------------------------------------------------------------------
-# Page config
-# --------------------------------------------------------------------------------------
+# --------------------------------------------------------
+# Streamlit page config
+# --------------------------------------------------------
 st.set_page_config(
     page_title="CMPE 255 – Auto Data Toolkit",
     layout="wide",
-    page_icon="🚢",
+    page_icon="📊",
 )
 
-st.title("🚢 CMPE 255 – Auto Data Toolkit")
-st.markdown(
-    '''
-This Streamlit app demonstrates a **CRISP-DM style** workflow:
+st.title("🚀 CMPE 255 – Auto Data Toolkit")
 
-1. Choose a dataset (Titanic demo or upload CSV)  
-2. Select the target column  
-3. Automatically clean & preprocess the data  
-4. Train a RandomForest model inside a scikit-learn Pipeline  
-5. See metrics, confusion matrix, ROC curve  
-6. Explore **feature importance** and **SHAP explainability**  
-7. Look at **Partial Dependence Plots (PDP)** for key numeric features  
-'''
-)
-
-# --------------------------------------------------------------------------------------
-# Helper functions
-# --------------------------------------------------------------------------------------
+# --------------------------------------------------------
+# Utility functions
+# --------------------------------------------------------
 @st.cache_data
 def load_titanic_demo() -> pd.DataFrame:
-    url = "https://raw.githubusercontent.com/datasciencedojo/datasets/master/titanic.csv"
-    df = pd.read_csv(url)
-    # Drop very wide or mostly-missing columns that cause unstable UI / poor modeling
-    df = df.drop(columns=["Name", "Ticket", "Cabin"], errors="ignore")
+    """
+    Load Titanic demo dataset from a local CSV.
+    Put your titanic.csv in the repo root or adjust the path here.
+    """
+    try:
+        df = pd.read_csv("titanic.csv")
+    except FileNotFoundError:
+        st.error(
+            "titanic.csv not found. Please add titanic.csv to the repo or adjust the path in app.py."
+        )
+        st.stop()
     return df
 
 
-def build_preprocessor(X: pd.DataFrame) -> ColumnTransformer:
-    numeric_cols = X.select_dtypes(include=["number"]).columns.tolist()
-    categorical_cols = [c for c in X.columns if c not in numeric_cols]
+def try_parse_datetimes(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Try to parse object columns as datetime and create year/month/day features.
+    """
+    df = df.copy()
+    for col in df.columns:
+        if df[col].dtype == "object":
+            # Try parsing; if it fails, keep original
+            try:
+                parsed = pd.to_datetime(df[col], errors="raise")
+                # If this worked and has at least some non-NaT values, keep it
+                if parsed.notna().sum() > 0:
+                    df[col] = parsed
+            except Exception:
+                pass
 
-    num_tf = Pipeline([("scaler", StandardScaler())])
-    cat_tf = Pipeline([("encoder", OneHotEncoder(handle_unknown="ignore"))])
+    datetime_cols = df.select_dtypes(include=["datetime64[ns]", "datetime64[ns, UTC]"]).columns
+    for col in datetime_cols:
+        df[f"{col}_year"] = df[col].dt.year
+        df[f"{col}_month"] = df[col].dt.month
+        df[f"{col}_day"] = df[col].dt.day
 
-    pre = ColumnTransformer(
-        transformers=[
-            ("num", num_tf, numeric_cols),
-            ("cat", cat_tf, categorical_cols),
-        ]
-    )
-    return pre, numeric_cols, categorical_cols
+    return df
 
 
-def run_pipeline(df: pd.DataFrame, target_col: str, test_size: float = 0.2):
-    assert target_col in df.columns, f"Target column '{target_col}' not found in data."
+def remove_outliers(df: pd.DataFrame, method: str) -> pd.DataFrame:
+    """
+    Remove outliers using IQR / Z-score / IsolationForest / None.
+    Applied only to numeric columns.
+    """
+    if method == "None":
+        return df
 
-    # Basic cleaning: drop rows with missing target
-    df = df.dropna(subset=[target_col]).copy()
+    df_clean = df.copy()
+    numeric_cols = df_clean.select_dtypes(include=["number"]).columns
+    if len(numeric_cols) == 0:
+        return df_clean
 
-    y = df[target_col]
-    X = df.drop(columns=[target_col])
+    if method == "IQR":
+        for col in numeric_cols:
+            Q1 = df_clean[col].quantile(0.25)
+            Q3 = df_clean[col].quantile(0.75)
+            IQR = Q3 - Q1
+            mask = (df_clean[col] >= Q1 - 1.5 * IQR) & (df_clean[col] <= Q3 + 1.5 * IQR)
+            df_clean = df_clean[mask]
 
-    pre, num_cols, cat_cols = build_preprocessor(X)
+    elif method == "Z-score":
+        from scipy.stats import zscore
 
-    model = RandomForestClassifier(
-        n_estimators=300,
-        random_state=42,
-        n_jobs=-1,
-    )
+        z = np.abs(zscore(df_clean[numeric_cols]))
+        df_clean = df_clean[(z < 3).all(axis=1)]
 
-    pipe = Pipeline([("pre", pre), ("model", model)])
+    elif method == "IsolationForest":
+        iso = IsolationForest(contamination=0.02, random_state=42)
+        preds = iso.fit_predict(df_clean[numeric_cols])
+        df_clean = df_clean[preds == 1]
 
-    X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=test_size, stratify=y, random_state=42
-    )
+    return df_clean
 
-    pipe.fit(X_train, y_train)
 
-    y_pred = pipe.predict(X_test)
-
-    metrics = {
-        "accuracy": float(accuracy_score(y_test, y_pred)),
-        "precision_weighted": float(precision_score(y_test, y_pred, average="weighted", zero_division=0)),
-        "recall_weighted": float(recall_score(y_test, y_pred, average="weighted", zero_division=0)),
-        "f1_weighted": float(f1_score(y_test, y_pred, average="weighted", zero_division=0)),
-    }
-
-    # ROC / AUC: only if binary and predict_proba available
-    roc_info = None
-    y_unique = y.unique()
-    if hasattr(pipe, "predict_proba") and len(y_unique) == 2:
-        try:
-            y_proba = pipe.predict_proba(X_test)[:, 1]
-            fpr, tpr, _ = roc_curve(y_test, y_proba)
-            auc = roc_auc_score(y_test, y_proba)
-            roc_info = {"fpr": fpr, "tpr": tpr, "auc": float(auc)}
-        except Exception:
-            roc_info = None
+def make_imputer(method: str):
+    if method == "Mean":
+        return SimpleImputer(strategy="mean")
+    elif method == "Median":
+        return SimpleImputer(strategy="median")
+    elif method == "KNN Imputer":
+        return KNNImputer(n_neighbors=5)
+    elif method == "Iterative Imputer":
+        return IterativeImputer(random_state=42)
     else:
-        y_proba = None
-
-    return {
-        "pipeline": pipe,
-        "X": X,
-        "y": y,
-        "X_train": X_train,
-        "X_test": X_test,
-        "y_train": y_train,
-        "y_test": y_test,
-        "metrics": metrics,
-        "roc": roc_info,
-        "num_cols": num_cols,
-        "cat_cols": cat_cols,
-    }
+        # Pass-through – but SimpleImputer still needed to keep pipeline happy
+        return SimpleImputer(strategy="most_frequent")
 
 
-# --------------------------------------------------------------------------------------
-# Sidebar: data selection and target choice
-# --------------------------------------------------------------------------------------
-st.sidebar.header("1. Choose Data Source")
+def make_skew_transformer(method: str):
+    # Use FunctionTransformer to be safe with non-positive values
+    if method == "Log":
 
-data_source = st.sidebar.radio(
-    "Data source:",
-    ["Titanic demo", "Upload CSV"],
-    index=0,
-)
+        def log1p_safe(x):
+            x = np.array(x, dtype=float)
+            x[x <= 0] = np.nan
+            return np.log1p(x)
 
-if data_source == "Titanic demo":
-    df = load_titanic_demo()
-    st.sidebar.success("Loaded Titanic demo dataset.")
+        return FunctionTransformer(log1p_safe, validate=False)
+
+    elif method in ("Box-Cox", "Yeo-Johnson"):
+        from sklearn.preprocessing import PowerTransformer
+
+        if method == "Box-Cox":
+            return PowerTransformer(method="box-cox")  # requires positive
+        else:
+            return PowerTransformer(method="yeo-johnson")
+    else:
+        return "passthrough"
+
+
+def make_encoder(method: str):
+    if method == "OneHot":
+        return OneHotEncoder(handle_unknown="ignore")
+    elif method == "Ordinal":
+        return OrdinalEncoder(handle_unknown="use_encoded_value", unknown_value=-1)
+    else:
+        # Target Encoding via category_encoders
+        try:
+            import category_encoders as ce
+
+            return ce.TargetEncoder()
+        except Exception:
+            st.warning(
+                "category_encoders not installed – falling back to OneHotEncoder."
+            )
+            return OneHotEncoder(handle_unknown="ignore")
+
+
+def build_preprocessor(
+    X: pd.DataFrame,
+    imputer_method: str,
+    skew_method: str,
+    encoding_method: str,
+):
+    numeric_cols = X.select_dtypes(include=["number"]).columns.tolist()
+    categorical_cols = X.select_dtypes(
+        include=["object", "category", "bool"]
+    ).columns.tolist()
+
+    num_imputer = make_imputer(imputer_method)
+    skew_tf = make_skew_transformer(skew_method)
+    cat_encoder = make_encoder(encoding_method)
+
+    num_pipeline_steps = [("imputer", num_imputer)]
+    if skew_tf != "passthrough":
+        num_pipeline_steps.append(("skew", skew_tf))
+    num_pipeline_steps.append(("scaler", StandardScaler()))
+
+    num_pipeline = Pipeline(num_pipeline_steps)
+    cat_pipeline = Pipeline([("encoder", cat_encoder)])
+
+    preprocessor = ColumnTransformer(
+        transformers=[
+            ("num", num_pipeline, numeric_cols),
+            ("cat", cat_pipeline, categorical_cols),
+        ],
+        remainder="drop",
+    )
+
+    return preprocessor, numeric_cols, categorical_cols
+
+
+# --------------------------------------------------------
+# Sidebar – Controls
+# --------------------------------------------------------
+with st.sidebar:
+    st.header("1. Choose Data Source")
+    ds_choice = st.radio(
+        "Data source:",
+        ["Titanic demo", "Upload CSV"],
+        index=0,
+    )
+
+    if ds_choice == "Upload CSV":
+        uploaded = st.file_uploader("Upload CSV file", type=["csv"])
+    else:
+        uploaded = None
+
+    st.header("2. Target Column / Split")
+    target_col_manual = st.text_input(
+        "Target column name (leave blank to auto-guess 'Survived'):",
+        value="Survived",
+    )
+
+    test_size = st.slider("Test size fraction", 0.1, 0.4, 0.2, 0.05, help="Hold-out size")
+
+    st.header("3. Data Cleaning Options")
+
+    imputer_method = st.selectbox(
+        "Missing value imputation",
+        ["Mean", "Median", "KNN Imputer", "Iterative Imputer"],
+        index=0,
+    )
+
+    outlier_method = st.selectbox(
+        "Outlier detection / removal",
+        ["None", "IQR", "Z-score", "IsolationForest"],
+        index=0,
+    )
+
+    skew_method = st.selectbox(
+        "Skewness transform (numeric)",
+        ["None", "Log", "Box-Cox", "Yeo-Johnson"],
+        index=0,
+    )
+
+    encoding_method = st.selectbox(
+        "Categorical encoding",
+        ["OneHot", "Ordinal", "Target Encoding"],
+        index=0,
+    )
+
+    fs_method = st.selectbox(
+        "Feature selection",
+        ["None", "Variance Threshold", "RFE (RandomForest)"],
+        index=0,
+        help="Mutual Information is computed for visualization only.",
+    )
+
+    st.header("4. Extra")
+    generate_profile = st.checkbox("Generate data profiling report (ydata-profiling)")
+    run_button = st.button("✨ Run Auto-Toolkit", type="primary")
+
+# --------------------------------------------------------
+# Load data
+# --------------------------------------------------------
+if ds_choice == "Titanic demo":
+    df_raw = load_titanic_demo()
 else:
-    uploaded = st.sidebar.file_uploader("Upload a CSV file", type=["csv"])
     if uploaded is None:
-        st.info("👈 Upload a CSV file in the sidebar to begin.")
+        st.info("Upload a CSV file to begin.")
         st.stop()
-    df = pd.read_csv(uploaded)
-    st.sidebar.success("Custom CSV loaded.")
+    else:
+        df_raw = pd.read_csv(uploaded)
 
 st.subheader("📊 Raw Data Preview")
-st.write(f"Shape: **{df.shape[0]} rows × {df.shape[1]} columns**")
-st.dataframe(df.head(), use_container_width=True)
+st.write(f"Shape: {df_raw.shape[0]} rows × {df_raw.shape[1]} columns")
+st.dataframe(df_raw.head())
 
+# --------------------------------------------------------
+# Pre-cleaning stats
+# --------------------------------------------------------
 st.subheader("🧼 Missing Values")
-missing = df.isna().mean().to_frame("missing_fraction").T
-st.dataframe(missing, use_container_width=True)
+missing_fraction = df_raw.isna().mean().to_frame("missing_fraction").T
+st.dataframe(missing_fraction)
 
-# Guess likely target columns
-default_target_candidates = [c for c in df.columns if c.lower() in ["survived", "target", "label", "class", "outcome", "y"]]
-if default_target_candidates:
-    default_target = default_target_candidates[0]
+# Duplicates
+n_before = len(df_raw)
+df = df_raw.drop_duplicates()
+n_after = len(df)
+st.write(f"Removed **{n_before - n_after}** duplicate rows.")
+
+# Datetime parsing & feature engineering
+df = try_parse_datetimes(df)
+
+# Outlier removal
+df = remove_outliers(df, outlier_method)
+
+# --------------------------------------------------------
+# Choose target column
+# --------------------------------------------------------
+if target_col_manual and target_col_manual in df.columns:
+    target_col = target_col_manual
+elif "Survived" in df.columns:
+    target_col = "Survived"
 else:
-    default_target = df.columns[-1]
+    target_col = st.selectbox("Select target column", df.columns)
 
-st.sidebar.header("2. Target Column")
-target_col = st.sidebar.selectbox(
-    "Select the target column:",
-    df.columns.tolist(),
-    index=df.columns.get_loc(default_target),
-)
-
-st.sidebar.header("3. Train / Test Split")
-test_size = st.sidebar.slider("Test size fraction", 0.1, 0.4, 0.2, step=0.05)
-
-run_button = st.sidebar.button("🚀 Run Auto-Toolkit")
-
-if not run_button:
-    st.info("👈 Configure options in the sidebar and click **Run Auto-Toolkit**.")
+if target_col not in df.columns:
+    st.error("Target column not found in dataset.")
     st.stop()
 
-# --------------------------------------------------------------------------------------
-# Run pipeline
-# --------------------------------------------------------------------------------------
-with st.spinner("Training model and computing metrics..."):
-    results = run_pipeline(df, target_col=target_col, test_size=test_size)
+X = df.drop(columns=[target_col])
+y = df[target_col]
 
-pipe = results["pipeline"]
-X = results["X"]
-y = results["y"]
-X_train = results["X_train"]
-X_test = results["X_test"]
-y_train = results["y_train"]
-y_test = results["y_test"]
-metrics = results["metrics"]
-roc_info = results["roc"]
-num_cols = results["num_cols"]
-cat_cols = results["cat_cols"]
+# For binary classification, map yes/no etc. to 0/1 when necessary
+if y.dtype == "object":
+    y = y.astype("category").cat.codes
+
+# --------------------------------------------------------
+# Optional profiling report
+# --------------------------------------------------------
+if generate_profile:
+    st.subheader("📋 Profiling Report")
+    try:
+        from ydata_profiling import ProfileReport
+
+        profile = ProfileReport(df, title="Data Profile", explorative=True)
+        buffer = io.StringIO()
+        profile.to_file("profile_report.html")
+        with open("profile_report.html", "rb") as f:
+            st.download_button(
+                "Download profile_report.html", f, file_name="profile_report.html"
+            )
+        st.success("Profiling report generated.")
+    except Exception as e:
+        st.warning(f"Could not generate profile report: {e}")
+
+# --------------------------------------------------------
+# Train / Test split
+# --------------------------------------------------------
+X_train, X_test, y_train, y_test = train_test_split(
+    X, y, test_size=test_size, random_state=42, stratify=y
+)
+
+# --------------------------------------------------------
+# Build preprocessing and pipeline
+# --------------------------------------------------------
+preprocessor, num_cols, cat_cols = build_preprocessor(
+    X, imputer_method, skew_method, encoding_method
+)
+
+# Feature selection step
+if fs_method == "Variance Threshold":
+    fs_step = VarianceThreshold(threshold=0.0)
+elif fs_method.startswith("RFE"):
+    base_est = RandomForestClassifier(
+        n_estimators=100, random_state=42, n_jobs=-1
+    )
+    fs_step = RFE(base_est, n_features_to_select=10)
+else:
+    fs_step = "passthrough"
+
+prep_and_fs = Pipeline(
+    steps=[
+        ("preprocess", preprocessor),
+        ("fs", fs_step),
+    ]
+)
+
+model = RandomForestClassifier(
+    n_estimators=300,
+    max_depth=None,
+    random_state=42,
+    n_jobs=-1,
+)
+
+full_pipeline = Pipeline(
+    steps=[
+        ("prep_fs", prep_and_fs),
+        ("model", model),
+    ]
+)
+
+# --------------------------------------------------------
+# Run Auto-Toolkit
+# --------------------------------------------------------
+if not run_button:
+    st.stop()
+
+with st.spinner("Training model and running toolkit..."):
+    full_pipeline.fit(X_train, y_train)
 
 st.success("✅ Model training complete.")
 
-# --------------------------------------------------------------------------------------
-# Metrics
-# --------------------------------------------------------------------------------------
+# --------------------------------------------------------
+# Evaluation metrics
+# --------------------------------------------------------
+y_pred = full_pipeline.predict(X_test)
+y_proba = full_pipeline.predict_proba(X_test)[:, 1]
+
+acc = accuracy_score(y_test, y_pred)
+prec = precision_score(y_test, y_pred, zero_division=0)
+rec = recall_score(y_test, y_pred, zero_division=0)
+f1 = f1_score(y_test, y_pred, zero_division=0)
+
 st.subheader("📈 Evaluation Metrics")
+c1, c2, c3, c4 = st.columns(4)
+c1.metric("Accuracy", f"{acc:.3f}")
+c2.metric("Precision (weighted)", f"{prec:.3f}")
+c3.metric("Recall (weighted)", f"{rec:.3f}")
+c4.metric("F1-score (weighted)", f"{f1:.3f}")
 
-col1, col2, col3, col4 = st.columns(4)
-col1.metric("Accuracy", f"{metrics['accuracy']:.3f}")
-col2.metric("Precision (weighted)", f"{metrics['precision_weighted']:.3f}")
-col3.metric("Recall (weighted)", f"{metrics['recall_weighted']:.3f}")
-col4.metric("F1 (weighted)", f"{metrics['f1_weighted']:.3f}")
+st.markdown("#### Classification report")
+report_text = classification_report(y_test, y_pred, digits=3)
+st.text(report_text)
 
-st.text("Classification report:")
-st.text(classification_report(y_test, pipe.predict(X_test)))
-
-# --------------------------------------------------------------------------------------
 # Confusion Matrix
-# --------------------------------------------------------------------------------------
-st.subheader("🧮 Confusion Matrix")
-cm = confusion_matrix(y_test, pipe.predict(X_test))
-
-fig_cm, ax_cm = plt.subplots()
-im = ax_cm.imshow(cm, cmap="Blues")
-for i in range(cm.shape[0]):
-    for j in range(cm.shape[1]):
-        ax_cm.text(j, i, cm[i, j], ha="center", va="center", color="black")
+st.subheader("📊 Confusion Matrix")
+cm = confusion_matrix(y_test, y_pred)
+fig_cm, ax_cm = plt.subplots(figsize=(4, 4))
+sns.heatmap(
+    cm,
+    annot=True,
+    fmt="d",
+    cmap="Blues",
+    cbar=False,
+    ax=ax_cm,
+)
 ax_cm.set_xlabel("Predicted")
 ax_cm.set_ylabel("True")
-fig_cm.colorbar(im, ax=ax_cm)
 st.pyplot(fig_cm)
 
-# --------------------------------------------------------------------------------------
-# ROC Curve (if available)
-# --------------------------------------------------------------------------------------
+# ROC Curve
 st.subheader("📉 ROC Curve")
-if roc_info is not None:
-    fig_roc, ax_roc = plt.subplots()
-    ax_roc.plot(roc_info["fpr"], roc_info["tpr"], label=f"AUC = {roc_info['auc']:.3f}")
-    ax_roc.plot([0, 1], [0, 1], "k--", label="Random")
-    ax_roc.set_xlabel("False Positive Rate")
-    ax_roc.set_ylabel("True Positive Rate")
-    ax_roc.legend()
-    st.pyplot(fig_roc)
-else:
-    st.info("ROC curve is only shown for binary classification problems with predict_proba.")
+fpr, tpr, _ = roc_curve(y_test, y_proba)
+auc = roc_auc_score(y_test, y_proba)
+fig_roc, ax_roc = plt.subplots(figsize=(5, 4))
+ax_roc.plot(fpr, tpr, label=f"AUC = {auc:.3f}")
+ax_roc.plot([0, 1], [0, 1], "k--", label="Random")
+ax_roc.set_xlabel("False Positive Rate")
+ax_roc.set_ylabel("True Positive Rate")
+ax_roc.legend()
+st.pyplot(fig_roc)
 
-# --------------------------------------------------------------------------------------
-# Global Feature Importance (model-based)
-# --------------------------------------------------------------------------------------
+# --------------------------------------------------------
+# Feature importance (RandomForest)
+# --------------------------------------------------------
 st.subheader("📊 Feature Importance (RandomForest)")
 
-X_train_proc = pipe["pre"].transform(X_train)
-if hasattr(X_train_proc, "toarray"):
-    X_train_proc = X_train_proc.toarray()
+# Get processed feature names from ColumnTransformer
+def get_feature_names(preprocessor: ColumnTransformer) -> list:
+    output_features = []
+    for name, trans, cols in preprocessor.transformers_:
+        if name == "remainder":
+            continue
+        if hasattr(trans, "named_steps"):
+            last_step = list(trans.named_steps.values())[-1]
+        else:
+            last_step = trans
 
-feature_names = []
-if num_cols:
-    feature_names.extend(num_cols)
-if cat_cols:
-    ohe = pipe["pre"].named_transformers_["cat"]["encoder"]
-    cat_feature_names = list(ohe.get_feature_names_out(cat_cols))
-    feature_names.extend(cat_feature_names)
+        if hasattr(last_step, "get_feature_names_out"):
+            feats = last_step.get_feature_names_out(cols)
+        elif hasattr(last_step, "get_feature_names"):
+            feats = last_step.get_feature_names(cols)
+        else:
+            feats = cols
+        output_features.extend(feats)
+    return list(output_features)
 
-importances = pipe["model"].feature_importances_
 
-fi_df = pd.DataFrame({"feature": feature_names, "importance": importances})
-fi_df = fi_df.sort_values("importance", ascending=False)
-
-fig_fi, ax_fi = plt.subplots(figsize=(6, max(3, len(fi_df) * 0.3)))
-ax_fi.barh(fi_df["feature"], fi_df["importance"])
-ax_fi.invert_yaxis()
-ax_fi.set_xlabel("Importance")
-ax_fi.set_title("RandomForest Feature Importance")
-st.pyplot(fig_fi)
-
-# --------------------------------------------------------------------------------------
-# SHAP Feature Importance
-# --------------------------------------------------------------------------------------
-st.subheader("🧠 SHAP Feature Importance (Custom Beeswarm)")
+prep_fs = full_pipeline.named_steps["prep_fs"]
+preprocessor_fitted = prep_fs.named_steps["preprocess"]
 
 try:
-    # --- Sample data ---
-    Xs = X_train.sample(min(200, len(X_train)), random_state=42)
-    Xs_proc = pipe["pre"].transform(Xs)
-    if hasattr(Xs_proc, "toarray"):
-        Xs_proc = Xs_proc.toarray()
+    feature_names = get_feature_names(preprocessor_fitted)
+except Exception:
+    feature_names = [f"f{i}" for i in range(prep_fs.transform(X_train[:1]).shape[1])]
 
-    Xs_df = pd.DataFrame(Xs_proc, columns=feature_names)
+rf_model = full_pipeline.named_steps["model"]
+importances = rf_model.feature_importances_
+fi_df = (
+    pd.DataFrame({"feature": feature_names, "importance": importances})
+    .sort_values("importance", ascending=False)
+)
 
-    # --- Compute SHAP ---
-    explainer = shap.TreeExplainer(pipe["model"])
-    shap_vals = explainer.shap_values(Xs_df)
+fig_fi, ax_fi = plt.subplots(figsize=(6, 4))
+sns.barplot(
+    data=fi_df.head(15),
+    y="feature",
+    x="importance",
+    ax=ax_fi,
+)
+ax_fi.set_title("RandomForest Feature Importance (Top 15)")
+st.pyplot(fig_fi)
 
-    # Case 1: shap_values is list (binary model)
-    if isinstance(shap_vals, list):
-        shap_vals = shap_vals[1]
+# Mutual Information (for reference – not used in pipeline)
+st.subheader("📊 Mutual Information (top 15 – not used in pipeline)")
+try:
+    X_proc = prep_fs.transform(X_train)
+    mi = mutual_info_classif(X_proc, y_train, discrete_features=False, random_state=42)
+    mi_df = (
+        pd.DataFrame({"feature": feature_names, "mi": mi})
+        .sort_values("mi", ascending=False)
+    )
+    fig_mi, ax_mi = plt.subplots(figsize=(6, 4))
+    sns.barplot(data=mi_df.head(15), y="feature", x="mi", ax=ax_mi)
+    ax_mi.set_title("Mutual Information (Top 15)")
+    st.pyplot(fig_mi)
+except Exception as e:
+    st.info(f"Could not compute mutual information: {e}")
 
-    # Case 2: returned interaction values: shape (n, f, 2)
-    if shap_vals.ndim == 3:
-        # Convert interaction values to main effects
-        shap_vals = shap_vals.mean(axis=2)
+# --------------------------------------------------------
+# Partial Dependence Plots (PDP)
+# --------------------------------------------------------
+st.subheader("📉 Partial Dependence Plots (PDP)")
+pdp_cols = []
+for col in ["Age", "Fare", "Pclass"]:
+    if col in X.columns:
+        pdp_cols.append(col)
 
-    # Now shap_vals is (n_samples, n_features)
-    shap_df = pd.DataFrame(shap_vals, columns=feature_names)
+if len(pdp_cols) == 0:
+    st.info("No standard numeric columns (Age/Fare/Pclass) found for PDP.")
+else:
+    cols = st.columns(len(pdp_cols))
+    for ax_col, feat in zip(cols, pdp_cols):
+        fig_pdp, ax_pdp = plt.subplots(figsize=(4, 3))
+        try:
+            PartialDependenceDisplay.from_estimator(
+                full_pipeline,
+                X,
+                features=[feat],
+                ax=ax_pdp,
+            )
+            ax_pdp.set_title(f"PDP – {feat}")
+            ax_col.pyplot(fig_pdp)
+        except Exception as e:
+            ax_col.write(f"Could not compute PDP for {feat}: {e}")
 
-    # --- Top 10 features ---
-    mean_abs = shap_df.abs().mean().sort_values(ascending=False)
-    top_features = mean_abs.index[:10]
+# --------------------------------------------------------
+# SHAP feature importance (custom beeswarm)
+# --------------------------------------------------------
+st.subheader("🧠 SHAP Feature Importance (Custom Beeswarm)")
+try:
+    # Use TreeExplainer on underlying RandomForest
+    rf = rf_model
+    # Sample for speed
+    sample_size = min(300, X_train.shape[0])
+    X_sample = X_train.sample(sample_size, random_state=42)
+    X_sample_proc = prep_fs.transform(X_sample)
 
-    # --- Beeswarm ---
-    fig, ax = plt.subplots(figsize=(10, 6))
-    plt.gcf().set_facecolor("white")
+    explainer = shap.TreeExplainer(rf)
+    shap_values = explainer.shap_values(X_sample_proc)
 
-    for i, feat in enumerate(top_features[::-1]):
-        vals = shap_df[feat].values
-        jitter = np.random.normal(0, 0.03, size=len(vals))
-        ax.scatter(vals, i + jitter,
-                   s=22, alpha=0.7,
-                   c=np.where(vals > 0, "crimson", "royalblue"))
+    # For binary classification, shap_values is a list of two arrays
+    if isinstance(shap_values, list):
+        sv = shap_values[1]
+    else:
+        sv = shap_values
 
-    ax.set_yticks(range(len(top_features)))
-    ax.set_yticklabels(top_features[::-1])
-    ax.set_xlabel("SHAP value")
-    ax.set_title("SHAP Feature Importance (Top 10)")
-
-    ax.axvline(0, color="gray", linestyle="--")
-    plt.tight_layout()
-
-    st.pyplot(fig, clear_figure=True)
-
+    # Custom beeswarm with matplotlib so it fits nicely in Streamlit
+    fig_shap, ax_shap = plt.subplots(figsize=(7, 5))
+    shap.summary_plot(
+        sv,
+        features=X_sample_proc,
+        feature_names=feature_names,
+        show=False,
+        plot_type="dot",
+        max_display=10,
+    )
+    st.pyplot(fig_shap)
 except Exception as e:
     st.error(f"SHAP failed: {e}")
 
+# --------------------------------------------------------
+# Download cleaned dataset & simple HTML report
+# --------------------------------------------------------
+st.subheader("📥 Downloads")
 
+cleaned_csv = df.to_csv(index=False).encode("utf-8")
+st.download_button(
+    "Download cleaned dataset (CSV)",
+    data=cleaned_csv,
+    file_name="cleaned_dataset.csv",
+    mime="text/csv",
+)
 
-# --------------------------------------------------------------------------------------
-# Partial Dependence Plots (PDP)
-# --------------------------------------------------------------------------------------
-st.subheader("📉 Partial Dependence Plots (PDP)")
+# Simple HTML report
+report_html = f"""
+<html>
+<head><title>Auto Data Toolkit Report</title></head>
+<body>
+<h1>Auto Data Toolkit Report</h1>
+<h2>Dataset</h2>
+<ul>
+  <li>Original rows: {n_before}</li>
+  <li>After duplicate removal & outliers: {len(df)}</li>
+</ul>
+<h2>Model</h2>
+<ul>
+  <li>RandomForestClassifier (n_estimators=300)</li>
+  <li>Test size: {test_size}</li>
+</ul>
+<h2>Metrics</h2>
+<ul>
+  <li>Accuracy: {acc:.3f}</li>
+  <li>Precision: {prec:.3f}</li>
+  <li>Recall: {rec:.3f}</li>
+  <li>F1-score: {f1:.3f}</li>
+  <li>AUC: {auc:.3f}</li>
+</ul>
+<pre>
+{report_text}
+</pre>
+</body>
+</html>
+"""
+report_bytes = report_html.encode("utf-8")
+st.download_button(
+    "Download HTML model report",
+    data=report_bytes,
+    file_name="auto_toolkit_report.html",
+    mime="text/html",
+)
 
-numeric_cols = X.select_dtypes(include=["number"]).columns.tolist()
-# Try some typical interesting numeric columns:
-candidate_pdp_cols = [c for c in ["Age", "Fare", "Pclass"] if c in numeric_cols]
-if not candidate_pdp_cols:
-    candidate_pdp_cols = numeric_cols[:2]
-
-if not candidate_pdp_cols:
-    st.info("No numeric columns found to plot PDP.")
-else:
-    cols = st.columns(len(candidate_pdp_cols))
-    for ax_col, feature in zip(cols, candidate_pdp_cols):
-        with ax_col:
-            try:
-                pdp_res = partial_dependence(pipe, X=X_train, features=[feature])
-                grid = pdp_res.get("grid_values", pdp_res.get("values"))[0]
-                avg = pdp_res["average"][0]
-
-                fig_pdp, ax_pdp = plt.subplots()
-                ax_pdp.plot(grid, avg)
-                ax_pdp.set_xlabel(feature)
-                ax_pdp.set_ylabel("Partial dependence")
-                ax_pdp.set_title(f"PDP – {feature}")
-                st.pyplot(fig_pdp)
-            except Exception as e:
-                st.warning(f"Could not compute PDP for {feature}: {e}")
