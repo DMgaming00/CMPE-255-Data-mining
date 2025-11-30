@@ -290,55 +290,53 @@ st.pyplot(fig_fi)
 st.subheader("🧠 SHAP Feature Importance (Custom Beeswarm)")
 
 try:
-    # 1. Sample data
+    # --- Sample data ---
     Xs = X_train.sample(min(200, len(X_train)), random_state=42)
     Xs_proc = pipe["pre"].transform(Xs)
-
     if hasattr(Xs_proc, "toarray"):
         Xs_proc = Xs_proc.toarray()
 
     Xs_df = pd.DataFrame(Xs_proc, columns=feature_names)
 
-    # 2. Compute SHAP values
+    # --- Compute SHAP ---
     explainer = shap.TreeExplainer(pipe["model"])
-    sv = explainer.shap_values(Xs_df)
+    shap_vals = explainer.shap_values(Xs_df)
 
-    # Handle binary vs multiclass
-    if isinstance(sv, list):
-        # Binary classification → use class 1 values
-        if len(sv) == 2:
-            sv = sv[1]
-        else:
-            # Multiclass → average absolute SHAP
-            sv = np.mean(np.abs(np.array(sv)), axis=0)
+    # Case 1: shap_values is list (binary model)
+    if isinstance(shap_vals, list):
+        shap_vals = shap_vals[1]
 
-    # sv shape: (n_samples, n_features)
-    shap_df = pd.DataFrame(sv, columns=feature_names)
+    # Case 2: returned interaction values: shape (n, f, 2)
+    if shap_vals.ndim == 3:
+        # Convert interaction values to main effects
+        shap_vals = shap_vals.mean(axis=2)
 
-    # 3. Sort by importance
-    mean_abs_shap = shap_df.abs().mean().sort_values(ascending=False)
-    top_features = mean_abs_shap.index[:10]
+    # Now shap_vals is (n_samples, n_features)
+    shap_df = pd.DataFrame(shap_vals, columns=feature_names)
 
-    # 4. Build a stable beeswarm manually
+    # --- Top 10 features ---
+    mean_abs = shap_df.abs().mean().sort_values(ascending=False)
+    top_features = mean_abs.index[:10]
+
+    # --- Beeswarm ---
     fig, ax = plt.subplots(figsize=(10, 6))
     plt.gcf().set_facecolor("white")
 
-    y_positions = range(len(top_features))
-
-    for i, feat in enumerate(top_features):
+    for i, feat in enumerate(top_features[::-1]):
         vals = shap_df[feat].values
         jitter = np.random.normal(0, 0.03, size=len(vals))
-        ax.scatter(vals, i + jitter, alpha=0.7, s=22,
+        ax.scatter(vals, i + jitter,
+                   s=22, alpha=0.7,
                    c=np.where(vals > 0, "crimson", "royalblue"))
 
-    ax.set_yticks(list(y_positions))
-    ax.set_yticklabels(top_features)
+    ax.set_yticks(range(len(top_features)))
+    ax.set_yticklabels(top_features[::-1])
     ax.set_xlabel("SHAP value")
-    ax.set_title("Custom SHAP Beeswarm (Top 10 Features)")
+    ax.set_title("SHAP Feature Importance (Top 10)")
 
-    ax.axvline(0, color="gray", linestyle="--", linewidth=1)
-
+    ax.axvline(0, color="gray", linestyle="--")
     plt.tight_layout()
+
     st.pyplot(fig, clear_figure=True)
 
 except Exception as e:
