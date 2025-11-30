@@ -290,35 +290,43 @@ st.pyplot(fig_fi)
 st.subheader("🧠 SHAP Feature Importance")
 
 try:
-    # Sample for speed
-    sample_size = min(300, len(X_train))
-    X_sample = X_train.sample(sample_size, random_state=42)
+    # Sample training data
+    Xs = X_train.sample(min(300, len(X_train)), random_state=42)
+    Xs_proc = pipe["pre"].transform(Xs)
+    if hasattr(Xs_proc, "toarray"):
+        Xs_proc = Xs_proc.toarray()
 
-    X_sample_proc = pipe["pre"].transform(X_sample)
-    if hasattr(X_sample_proc, "toarray"):
-        X_sample_proc = X_sample_proc.toarray()
+    Xs_df = pd.DataFrame(Xs_proc, columns=feature_names)
 
-    X_sample_df = pd.DataFrame(X_sample_proc, columns=feature_names)
-
+    # Create SHAP explainer
     explainer = shap.TreeExplainer(pipe["model"])
-    shap_values = explainer.shap_values(X_sample_df)
+    shap_values = explainer.shap_values(Xs_df)
 
-    # Binary vs multiclass handling
+    # Handle binary / multiclass
     if isinstance(shap_values, list):
         if len(shap_values) == 2:
-            sv = shap_values[1]        # Positive class
+            sv = shap_values[1]
         else:
-            sv = np.mean(shap_values, axis=0)    # Multiclass mean
+            sv = np.mean(shap_values, axis=0)
     else:
         sv = shap_values
 
-    # CRITICAL FIX: capture the figure SHAP creates
-    plt.clf()
-    shap.summary_plot(sv, X_sample_df, feature_names=feature_names, show=False)
+    # 💥 FIX: Create a controlled-size figure BEFORE calling summary_plot
+    fig, ax = plt.subplots(figsize=(10, 4), dpi=100)
+    plt.gcf().set_facecolor("white")
 
-    fig = plt.gcf()                      # GET THE FIGURE SHAP CREATED
-    fig.set_facecolor("white")           # Make visible in dark mode
-    st.pyplot(fig)                       # Display THAT figure
+    shap.summary_plot(
+        sv,
+        Xs_df,
+        plot_type="dot",
+        show=False,
+        max_display=10,      # 💥 LIMIT TO TOP 10 FEATURES (makes plot smaller)
+    )
+
+    # 💥 FIX: Tight layout prevents cutoff
+    plt.tight_layout()
+
+    st.pyplot(fig, clear_figure=True)
 
 except Exception as e:
     st.error(f"SHAP failed: {e}")
