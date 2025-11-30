@@ -303,24 +303,26 @@ try:
     explainer = shap.TreeExplainer(pipe["model"])
     shap_values = explainer.shap_values(X_sample_df)
 
-    # Handle binary vs multiclass
+    # Binary vs multiclass handling
     if isinstance(shap_values, list):
         if len(shap_values) == 2:
-            # Binary: take class 1
-            sv = shap_values[1]
+            sv = shap_values[1]        # Positive class
         else:
-            # Multiclass: average absolute SHAP over classes
-            sv_arr = np.array(shap_values)  # (n_classes, n_samples, n_features)
-            sv = sv_arr.mean(axis=0)
+            sv = np.mean(shap_values, axis=0)    # Multiclass mean
     else:
         sv = shap_values
 
-    fig_shap = plt.figure(figsize=(7, 5))
+    # CRITICAL FIX: capture the figure SHAP creates
+    plt.clf()
     shap.summary_plot(sv, X_sample_df, feature_names=feature_names, show=False)
-    st.pyplot(fig_shap)
+
+    fig = plt.gcf()                      # GET THE FIGURE SHAP CREATED
+    fig.set_facecolor("white")           # Make visible in dark mode
+    st.pyplot(fig)                       # Display THAT figure
 
 except Exception as e:
-    st.warning(f"SHAP failed: {e}")
+    st.error(f"SHAP failed: {e}")
+
 
 # --------------------------------------------------------------------------------------
 # Partial Dependence Plots (PDP)
