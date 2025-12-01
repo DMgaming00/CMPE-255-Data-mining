@@ -64,7 +64,7 @@ Traditional deep learning models usually focus on one task at a time and need lo
 
 ## 📰 Medium Article
 
-📖 **Medium Post:** [*Foundation Models for Spatio-Temporal Data Science — Explained Simply*](#)  
+📖 **Medium Post:** [*Foundation Models for Spatio-Temporal Data Science — Explained Simply*](https://medium.com/@devchandralal.mulchandani/how-ai-learns-space-and-time-an-introduction-to-spatio-temporal-models-d4701a4c68de)  
 
 This article paraphrases and summarizes the original research using simpler language and visuals to help readers understand STFMs and their real-world importance.
 
