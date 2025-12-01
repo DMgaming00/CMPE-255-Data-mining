@@ -71,7 +71,7 @@ This article paraphrases and summarizes the original research using simpler lang
 
 ## 📊 Presentation Slides
 
-📈 **Drive Link:** [*Spatio-Temporal Foundation Models — CMPE255 Presentation*](#)   
+📈 **Drive Link:** [*Spatio-Temporal Foundation Models — CMPE255 Presentation*](https://drive.google.com/file/d/1mq0__mOm3Wa-MHm172VMRKPnL2gKHenm/view?usp=sharing)   
 
 The slides highlight the motivation, workflow, and applications of STFMs.
 
@@ -85,7 +85,8 @@ Explains:
 - How foundation models enhance it  
 - Real-world examples and applications
 
- Video :- [Click here to view the presentation](https://drive.google.com/file/d/19vXVPwfzYMzNV6lNs2myIbYjmEtqGK0X/view?usp=sharing)
+ I have uploaded the Video in my Repo also but for better quality click the link below!
+ **Video(Better Quality)** :- [Click here to view the presentation](https://drive.google.com/file/d/19vXVPwfzYMzNV6lNs2myIbYjmEtqGK0X/view?usp=sharing)
 
 ---
 
