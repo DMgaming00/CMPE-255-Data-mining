@@ -54,7 +54,8 @@ Traditional deep learning models usually focus on one task at a time and need lo
 
 | File | Description |
 |------|--------------|
-| `README.md` | Overview of the project and paper summary |
+| `README.md` | Overview of the project and paper summary |   
+| `Research Paper` | The Source/Original research paper |
 | `PPT` | Presentation slides summarizing the research |
 | `Medium Article` | Link to the Medium article |
 | `video presentation` | Recorded 10–15 minute explanation video |
