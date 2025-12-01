@@ -82,11 +82,13 @@ The slides highlight the motivation, workflow, and applications of STFMs.
 
 ## 🎥 Video Presentation
 
-🎬 **Duration:** 10–15 minutes  
+🎬 **Duration:** 10 minutes  
 Explains:
 - What spatio-temporal data is  
 - How foundation models enhance it  
-- Real-world examples and applications  
+- Real-world examples and applications
+
+[Click here to view the presentation](https://drive.google.com/file/d/19vXVPwfzYMzNV6lNs2myIbYjmEtqGK0X/view?usp=sharing)
 
 ---
 
