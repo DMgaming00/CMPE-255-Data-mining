@@ -55,17 +55,15 @@ Traditional deep learning models usually focus on one task at a time and need lo
 | File | Description |
 |------|--------------|
 | `README.md` | Overview of the project and paper summary |
-| `slides.pdf` | Presentation slides summarizing the research |
-| `medium_article_link.txt` | Link to the Medium article |
-| `video_presentation.mp4` | Recorded 10–15 minute explanation video |
-| `references.txt` | Paper citation and supporting materials |
+| `PPT` | Presentation slides summarizing the research |
+| `Medium Article` | Link to the Medium article |
+| `video presentation` | Recorded 10–15 minute explanation video |
 
 ---
 
 ## 📰 Medium Article
 
 📖 **Medium Post:** [*Foundation Models for Spatio-Temporal Data Science — Explained Simply*](#)  
-*(Link will be added after publication)*  
 
 This article paraphrases and summarizes the original research using simpler language and visuals to help readers understand STFMs and their real-world importance.
 
@@ -73,8 +71,7 @@ This article paraphrases and summarizes the original research using simpler lang
 
 ## 📊 Presentation Slides
 
-📈 **Slideshare Link:** [*Spatio-Temporal Foundation Models — CMPE255 Presentation*](#)  
-*(Link will be added once uploaded)*  
+📈 **Drive Link:** [*Spatio-Temporal Foundation Models — CMPE255 Presentation*](#)   
 
 The slides highlight the motivation, workflow, and applications of STFMs.
 
@@ -88,7 +85,7 @@ Explains:
 - How foundation models enhance it  
 - Real-world examples and applications
 
-[Click here to view the presentation](https://drive.google.com/file/d/19vXVPwfzYMzNV6lNs2myIbYjmEtqGK0X/view?usp=sharing)
+ Video :- [Click here to view the presentation](https://drive.google.com/file/d/19vXVPwfzYMzNV6lNs2myIbYjmEtqGK0X/view?usp=sharing)
 
 ---
 
@@ -102,6 +99,7 @@ Liang, Y., Wen, H., Xia, Y., Jin, M., Yang, B., Salim, F., Wen, Q., Pan, S., & C
 ## 👨‍💻 Author
 
 **Name:** Dev Mulchandani  
+**SJSU ID:** 019147102 
 **Program:** Master of Science in Software Engineering (MSSE)  
 **University:** San José State University (SJSU)  
 **Semester:** Fall 2025  
