@@ -1,4 +1,4 @@
-# Final Clustering Assignment
+# Clustering Assignment
 
 This project contains the complete implementation, documentation, datasets, and results for all nine parts of the Clustering Assignment.  
 Each part includes:
